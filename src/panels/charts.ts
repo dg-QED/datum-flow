@@ -58,7 +58,10 @@ export function lineChart(s: LineSpec): string {
     }
     if (pts.length) out.push(`<polyline points="${pts.join(" ")}" fill="none" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"${se.dash ? ' stroke-dasharray="5 4"' : ""}/>`);
   });
-  for (const m of s.marks ?? []) out.push(`<line x1="${X(m.x)}" x2="${X(m.x)}" y1="${T}" y2="${H - B}" stroke="${m.color ?? th.text}" stroke-dasharray="2 3"/><text x="${X(m.x) + 4}" y="${T + 10}" fill="${m.color ?? th.text}">${esc(m.label)}</text>`);
+  (s.marks ?? []).forEach((m, k) => {
+    const x = X(m.x), right = x > W - R - m.label.length * 5.8 - 6;
+    out.push(`<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B}" stroke="${m.color ?? th.text}" stroke-dasharray="2 3"/><text x="${right ? x - 4 : x + 4}" y="${T + 10 + k * 12}" fill="${m.color ?? th.text}" text-anchor="${right ? "end" : "start"}">${esc(m.label)}</text>`);
+  });
   for (const g of leg) {
     const yy = H - B + 34 + g.line * 15 - 4;
     out.push(`<line x1="${g.x}" x2="${g.x + 14}" y1="${yy}" y2="${yy}" stroke="${g.c}" stroke-width="2"${g.dash ? ' stroke-dasharray="4 3"' : ""}/><text x="${g.x + 18}" y="${yy + 3.5}" fill="${th.text}">${g.label}</text>`);

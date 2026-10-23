@@ -125,9 +125,9 @@ export default function TopView({ mobile }: { mobile: boolean }) {
   useEffect(() => {
     const el = wrap.current; if (!el) return;
     const pv = getState().project.view;
-    if (pv && pv.level === getState().level) { v.current = { cx: pv.cx, cy: pv.cy, scale: pv.scale, w: el.clientWidth, h: el.clientHeight }; viewRef.v = v.current; dirty.current = { base: true, agents: true, top: true }; }
+    if (pv && pv.level === getState().level && !mobile) { v.current = { cx: pv.cx, cy: pv.cy, scale: pv.scale, w: el.clientWidth, h: el.clientHeight }; viewRef.v = v.current; dirty.current = { base: true, agents: true, top: true }; }
     else fit();
-  }, [projectId, fit]);
+  }, [projectId, fit, mobile]);
   useEffect(() => { const h = () => fit(); window.addEventListener("flow:fit", h); return () => window.removeEventListener("flow:fit", h); }, [fit]);
 
   // canvas sizing
@@ -178,7 +178,7 @@ export default function TopView({ mobile }: { mobile: boolean }) {
         const scen = s.project.scenarios.find((x) => x.id === s.project.activeScenario);
         const doorsOpen = new Map<string, boolean>();
         if (live.doorsOpen && live.info) live.info.openings.forEach((o, i) => { if (!live.doorsOpen![i]) doorsOpen.set(o.id, false); });
-        drawPlan(g, v.current, s.project, { level: s.level, ghost: s.ghostLevels, selection: new Set(s.selection), closed: new Set(scen?.closedExits ?? []), doorsOpen });
+        drawPlan(g, v.current, s.project, { level: s.level, ghost: s.ghostLevels, selection: new Set(s.selection), closed: new Set(scen?.closedExits ?? []), doorsOpen, running: !!live.frame });
         if (s.trails && live.keys.length > 1 && live.info) drawTrails(g, v.current, li, s.scrub);
       }
       if (dirty.current.agents && glRef.current) {
@@ -545,7 +545,7 @@ export default function TopView({ mobile }: { mobile: boolean }) {
       <canvas ref={glRef} className="layer" />
       <canvas ref={topRef} className="layer" />
       <div className="ov rail" onPointerDown={(e) => e.stopPropagation()} data-testid="rail">
-        {TOOLS.filter((t) => !mobile || ["select", "pan", "wall", "door", "exit", "spawn", "attractor", "measure"].includes(t.t)).map((t, i) => (
+        {TOOLS.filter((t) => !mobile || ["select", "pan", "wall", "door", "exit", "measure"].includes(t.t)).map((t, i) => (
           <span key={t.t} style={{ display: "contents" }}>
             {(i === 2 || i === 11) && <div className="sep" />}
             <button className={`rb ${tool === t.t ? "on" : ""}`} data-tip={`${t.label} · ${t.key}`} aria-label={t.label} onClick={() => setState({ tool: t.t })} data-testid={`tool-${t.t}`}><Icon name={t.icon} size={17} /></button>
@@ -571,7 +571,7 @@ export default function TopView({ mobile }: { mobile: boolean }) {
         <span className="scalebar"><span style={{ fontSize: 10 }}>{scaleBar.m >= 1 ? scaleBar.m : scaleBar.m.toFixed(1)} m</span><span className="bar" style={{ width: scaleBar.px }} /></span>
         {fol !== null && <span style={{ color: C.accent }}>following #{fol}</span>}
       </div>
-      {(overlay !== "none" || status !== "idle") && <Legend />}
+      {(overlay !== "none" || (status !== "idle" && !mobile)) && <Legend />}
       {calib && <CalibrateDialog a={calib.a} b={calib.b} onClose={() => setCalib(null)} />}
     </div>
   );

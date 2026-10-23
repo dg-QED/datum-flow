@@ -72,7 +72,7 @@ function sendFrame(withSeries: boolean) {
   if (lastDensityStep < 0 || s.stepCount - lastDensityStep >= 10) {
     frame.densDt = lastDensityStep < 0 ? 0 : (s.stepCount - lastDensityStep) * s.dt;
     lastDensityStep = s.stepCount;
-    frame.density = s.density.map((D) => { const u = new Uint8Array(D.dens.length); for (let c = 0; c < u.length; c++) u[c] = D.count[c] ? Math.min(255, Math.round(D.dens[c] * 20)) : 0; transfer.push(u.buffer); return u; });
+    frame.density = s.density.map((D) => { const u = new Uint8Array(D.dens.length); for (let c = 0; c < u.length; c++) u[c] = Math.min(255, Math.round(D.dens[c] * 20)); transfer.push(u.buffer); return u; });
   }
   frame.doorsOpen = s.doorOpen.slice();
   post({ type: "frame", frame, series: withSeries ? s.series : undefined }, transfer);

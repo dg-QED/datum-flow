@@ -259,7 +259,7 @@ function Shell() {
 }
 
 // ------------------------------------------------------------------ mobile bottom sheet
-const SHEET_H = { peek: 54, half: 0.5, full: 0.86 };
+const SHEET_H = { peek: 76, half: 0.5, full: 0.86 };
 function MobileSheet({ onImport }: { onImport: () => void }) {
   const tab = useStore((s) => s.sheetTab);
   const size = useStore((s) => s.sheetSize);

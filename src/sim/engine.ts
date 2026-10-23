@@ -24,7 +24,7 @@ export interface Series {
   exitCum: number[][];   // per opening (cumulative crossings; exits count leavers)
 }
 
-export interface DensityLevel { nx: number; ny: number; cs: number; x0: number; y0: number; count: Uint16Array; dens: Float32Array; max: Float32Array; cong: Float32Array }
+export interface DensityLevel { nx: number; ny: number; cs: number; x0: number; y0: number; count: Uint16Array; dens: Float32Array; max: Float32Array; cong: Float32Array; mask: Uint8Array }
 
 const DENSITY_EVERY = 10;     // steps (0.5 s at dt 0.05)
 
@@ -430,7 +430,17 @@ export class Sim {
     this.density = this.w.levels.map((L) => {
       const g = L.grid;
       const nx = Math.ceil((g.nx * g.h) / cs), ny = Math.ceil((g.ny * g.h) / cs);
-      return { nx, ny, cs, x0: g.x0, y0: g.y0, count: new Uint16Array(nx * ny), dens: new Float32Array(nx * ny), max: new Float32Array(nx * ny), cong: new Float32Array(nx * ny) };
+      // seating blocks are not circulation space: excluded from density / LOS metrics (Fruin LOS is for walkways and queues)
+      const mask = new Uint8Array(nx * ny);
+      for (const sb of this.w.seating) {
+        if (sb.level !== L.index) continue;
+        const { toLocal } = seatingFrame(sb.el);
+        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+          const [u, v] = toLocal(g.x0 + (i + 0.5) * cs, g.y0 + (j + 0.5) * cs);
+          if (u >= 0 && v >= 0 && u <= sb.el.width && v <= sb.el.depth) mask[j * nx + i] = 1;
+        }
+      }
+      return { nx, ny, cs, x0: g.x0, y0: g.y0, count: new Uint16Array(nx * ny), dens: new Float32Array(nx * ny), max: new Float32Array(nx * ny), cong: new Float32Array(nx * ny), mask };
     });
   }
   private updateDensity(elapsed: number) {
@@ -445,19 +455,18 @@ export class Sim {
     }
     let gmax = 0;
     for (const D of this.density) {
-      const { nx, ny, count, dens, max, cong } = D;
+      const { nx, ny, count, dens, max, cong, mask } = D;
       // 3×3 box (1.5 m × 1.5 m at the default 0.5 m cell): density in persons per m²
       const area = 9 * D.cs * D.cs;
       for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
         let s = 0;
         for (let dj = -1; dj <= 1; dj++) { const jj = j + dj; if (jj < 0 || jj >= ny) continue; for (let di = -1; di <= 1; di++) { const ii = i + di; if (ii < 0 || ii >= nx) continue; s += count[jj * nx + ii]; } }
         const c = j * nx + i;
-        const d = s / area;
+        // at least two people in the window: no halo around an isolated person
+        const d = s >= 2 && !mask[c] ? s / area : 0;
         dens[c] = d;
-        if (count[c] > 0) {      // only where someone actually stands — no halo around isolated people
-          if (d > max[c]) max[c] = d;
-          if (d >= thr) cong[c] += elapsed;
-        }
+        if (d > max[c]) max[c] = d;
+        if (d >= thr) cong[c] += elapsed;
         if (d > gmax && count[c] > 0) gmax = d;
       }
     }

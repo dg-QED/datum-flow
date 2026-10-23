@@ -176,6 +176,11 @@ try {
   check("3D view renders", px3d > 20, `${px3d} distinct colours`);
   await page.click("[data-testid=view-2d]");
 
+  // ---------------------------------------------------------------- 5b. video
+  const vidPath = await grab(async () => { await page.click("[data-testid=rec]"); await page.waitForTimeout(2500); await page.click("[data-testid=rec-stop]"); });
+  const vid = fs.readFileSync(vidPath);
+  check("WebM video recording", vid.length > 10000 && vid.subarray(0, 4).toString("hex") === "1a45dfa3", `${path.basename(vidPath)} ${(vid.length / 1024).toFixed(0)} kB (EBML header ${vid.subarray(0, 4).toString("hex")})`);
+
   // ---------------------------------------------------------------- 6. performance in the worker
   await page.evaluate(() => window.__flow.simctl.pause());
   const b5 = await page.evaluate(() => window.__flow.simctl.benchmark(5000, 100));

@@ -25,6 +25,7 @@ export interface PlanOpts {
   showGrid?: boolean;
   gridSize?: number;
   doorsOpen?: Map<string, boolean>;
+  running?: boolean;
 }
 
 function path(ctx: CanvasRenderingContext2D, v: ViewT, pts: P[], close = false) {
@@ -59,12 +60,12 @@ function arrowHead(ctx: CanvasRenderingContext2D, x: number, y: number, ang: num
   ctx.stroke();
 }
 
-export function drawElement(ctx: CanvasRenderingContext2D, v: ViewT, e: Element, o: { ghost?: boolean; selected?: boolean; closed?: boolean; theme: Theme; labels?: boolean; underside?: boolean; open?: boolean }) {
+export function drawElement(ctx: CanvasRenderingContext2D, v: ViewT, e: Element, o: { ghost?: boolean; selected?: boolean; closed?: boolean; theme: Theme; labels?: boolean; underside?: boolean; open?: boolean; faint?: boolean }) {
   const th = o.theme;
   const k = v.scale;
   const col = o.ghost ? th.textDim : e.kind === "wall" ? th.wall : KIND_COLOR[e.kind];
   ctx.save();
-  ctx.globalAlpha = o.ghost ? 0.22 : 1;
+  ctx.globalAlpha = o.ghost ? 0.22 : o.faint ? 0.35 : 1;
   ctx.lineCap = "round"; ctx.lineJoin = "round";
   switch (e.kind) {
     case "wall": {
@@ -237,7 +238,7 @@ export function drawPlan(ctx: CanvasRenderingContext2D, v: ViewT, p: Project, o:
     for (const e of p.elements) if (e.level !== o.level && (e.kind === "wall" || e.kind === "obstacle")) drawElement(ctx, v, e, { ghost: true, theme: th });
   }
   const mine = p.elements.filter((e) => e.level === o.level);
-  for (const k of order) for (const e of mine) if (e.kind === k) drawElement(ctx, v, e, { selected: o.selection?.has(e.id), closed: o.closed?.has(e.id), theme: th, open: o.doorsOpen?.get(e.id) });
+  for (const k of order) for (const e of mine) if (e.kind === k) drawElement(ctx, v, e, { selected: o.selection?.has(e.id), closed: o.closed?.has(e.id), theme: th, open: o.doorsOpen?.get(e.id), faint: o.running && e.kind === "spawn" && !o.selection?.has(e.id) });
   // stairs arriving on this level from another one: draw their footprint as the underside
   for (const e of p.elements) if (e.kind === "stair" && e.toLevel === o.level && e.level !== o.level) drawElement(ctx, v, e, { underside: true, theme: th, selected: o.selection?.has(e.id) });
   if (o.labels !== false) drawLabels(ctx, v, p, o.level, th, o.selection);
@@ -321,6 +322,8 @@ export function fitView(p: Project, level: string, w: number, h: number, pad = 3
     for (const q of pts) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
   }
   if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 40; y1 = 30; }
-  const scale = Math.max(0.5, Math.min((w - 2 * pad) / Math.max(1, x1 - x0), (h - 2 * pad) / Math.max(1, y1 - y0)));
+  // side gutters keep the tool rail and zoom buttons off the drawing in the live view
+  const side = pad >= 30 && w > 500 ? 60 : pad;
+  const scale = Math.max(0.5, Math.min((w - 2 * side) / Math.max(1, x1 - x0), (h - 2 * pad) / Math.max(1, y1 - y0)));
   return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, scale, w, h };
 }

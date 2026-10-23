@@ -194,9 +194,9 @@ export default function View3D() {
     if (!camSet.current && !box.isEmpty()) {
       camSet.current = true;
       const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
-      const R = Math.max(size.x, size.z) * 0.75 + 10;
+      const R = Math.max(size.x, size.z) * 0.62 + 8;
       S.ctl.target.copy(c);
-      S.cam.position.set(c.x + R * 0.35, c.y + R * 0.75, c.z + R * 0.85);
+      S.cam.position.set(c.x + R * 0.15, c.y + R * 0.95, c.z + R * 0.6);
       S.cam.updateProjectionMatrix();
     }
   }, [project.elements, project.levels]);

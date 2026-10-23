@@ -9,6 +9,9 @@ import { doorFlowSeries } from "../panels/ResultsPanel";
 import { LOS_COLORS, LOS_LETTERS, LOS_TABLE, SOURCES, distLabel, losIndex } from "../model/defaults";
 import { download } from "./download";
 
+const PDF_MAP: [RegExp, string][] = [[/²/g, "2"], [/³/g, "3"], [/⁵/g, "^5"], [/≥/g, ">="], [/≤/g, "<="], [/≈/g, "~"], [/×/g, "x"], [/[−–—]/g, "-"], [/σ/g, "sigma"], [/λ/g, "lambda"], [/κ/g, "kappa"], [/φ/g, "phi"], [/τ/g, "tau"], [/Δ/g, "delta"], [/ω/g, "omega"], [/ξ/g, "xi"], [/∇/g, "grad "], [/μ/g, "mean "], [/→/g, "->"], [/↓/g, "down"], [/↑/g, "up"], [/✓/g, "ok"], [/✗/g, "x"], [/‘|’/g, "'"], [/“|”/g, '"'], [/…/g, "..."]];
+function pdfSafe(t: string): string { let s = String(t); for (const [r, v] of PDF_MAP) s = s.replace(r, v); return s.replace(/[^\x00-\xff]/g, "?"); }
+
 function svgToPng(svg: string, w: number, h: number, k = 2): Promise<string> {
   return new Promise((res, rej) => {
     const img = new Image();
@@ -54,6 +57,10 @@ export async function buildReport(): Promise<{ pdf: JsPDF; name: string }> {
   const s = getState();
   const p = s.project, sc = activeScenario(s), info = s.info, series = s.series, sum = s.results?.summary, hc = s.handCalc;
   const pdf = new jsPDF({ unit: "pt", format: "letter", orientation: "portrait", compress: true });
+  // the standard PDF fonts are WinAnsi only: map the symbols used in the app's text to plain equivalents
+  const origText = pdf.text.bind(pdf), origSplit = pdf.splitTextToSize.bind(pdf);
+  (pdf as unknown as { text: unknown }).text = (t: string | string[], ...rest: unknown[]) => (origText as (...a: unknown[]) => JsPDF)(Array.isArray(t) ? t.map(pdfSafe) : pdfSafe(t), ...rest);
+  (pdf as unknown as { splitTextToSize: unknown }).splitTextToSize = (t: string, w: number, o?: unknown) => origSplit(pdfSafe(t), w, o as never);
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight(), M = 42;
   let y = M;
   let page = 1;
