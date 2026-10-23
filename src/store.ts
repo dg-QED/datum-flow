@@ -35,11 +35,11 @@ export interface State {
   trails: boolean;
   ghostLevels: boolean;
   leftTab: "plan" | "scenario";
-  rightTab: "props" | "results";
-  sheetTab: "run" | "results" | "plan" | "scenario" | "props";
+  rightTab: "props" | "results" | "ai";
+  sheetTab: "run" | "results" | "plan" | "scenario" | "props" | "ai";
   sheetSize: "peek" | "half" | "full";
-  undo: Pick<Project, "levels" | "elements">[];
-  redo: Pick<Project, "levels" | "elements">[];
+  undo: Project[];
+  redo: Project[];
   sim: { status: SimStatus; t: number; n: number; done: number; active: number; moving: number; waiting: number; queued: number; speed: number; dirty: boolean; buildMs: number; progress: number | null; error: string | null };
   info: WorldInfo | null;
   handCalc: HandCalc | null;
@@ -115,7 +115,8 @@ export function useStore<T>(sel: (s: State) => T): T {
 }
 
 // ------------------------------------------------------------------ project edits (undoable)
-const snap = (p: Project) => ({ levels: structuredClone(p.levels), elements: structuredClone(p.elements) });
+/** Undo snapshots hold the whole model (geometry, scenarios, settings), never run results. */
+const snap = (p: Project): Project => structuredClone({ ...p, results: undefined });
 
 /** Apply a geometry/scenario edit; geometry edits are undoable and mark the loaded simulation stale. */
 export function editProject(fn: (p: Project) => Project | void, opts: { undoable?: boolean; geometry?: boolean } = {}) {
@@ -134,17 +135,20 @@ export function editProject(fn: (p: Project) => Project | void, opts: { undoable
 export function updateElement(id: string, patch: Partial<Element>, undoable = true) {
   editProject((p) => { p.elements = p.elements.map((e) => (e.id === id ? ({ ...e, ...patch } as Element) : e)); }, { undoable });
 }
+const levelFor = (p: Project, cur: string) => (p.levels.some((l) => l.id === cur) ? cur : [...p.levels].sort((a, b) => b.elevation - a.elevation)[0].id);
+/** Push the current model as one undo step (for whole-project replacements such as opening a sample). */
+export function pushUndo() { setState((s) => ({ undo: [...s.undo.slice(-79), snap(s.project)], redo: [] })); }
 export function undo() {
   const s = state;
   const prev = s.undo[s.undo.length - 1];
   if (!prev) return;
-  setState({ project: { ...s.project, ...structuredClone(prev) }, undo: s.undo.slice(0, -1), redo: [...s.redo, snap(s.project)], selection: [], sim: { ...s.sim, dirty: true }, rev: s.rev + 1 });
+  setState({ project: { ...structuredClone(prev), results: s.project.results }, level: levelFor(prev, s.level), undo: s.undo.slice(0, -1), redo: [...s.redo, snap(s.project)], selection: [], sim: { ...s.sim, dirty: true }, rev: s.rev + 1 });
 }
 export function redo() {
   const s = state;
   const nxt = s.redo[s.redo.length - 1];
   if (!nxt) return;
-  setState({ project: { ...s.project, ...structuredClone(nxt) }, redo: s.redo.slice(0, -1), undo: [...s.undo, snap(s.project)], selection: [], sim: { ...s.sim, dirty: true }, rev: s.rev + 1 });
+  setState({ project: { ...structuredClone(nxt), results: s.project.results }, level: levelFor(nxt, s.level), redo: s.redo.slice(0, -1), undo: [...s.undo, snap(s.project)], selection: [], sim: { ...s.sim, dirty: true }, rev: s.rev + 1 });
 }
 
 export const activeScenario = (s: State = state) => s.project.scenarios.find((x) => x.id === s.project.activeScenario) ?? s.project.scenarios[0];

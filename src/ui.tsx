@@ -88,6 +88,8 @@ const ICONS: Record<string, ReactNode> = {
   heat: <>{P("M12 3c3 4 6 6 6 11a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-2 1-5 1-9z")}</>,
   follow: <><circle cx="12" cy="12" r="3" />{P("M12 2v4M12 18v4M2 12h4M18 12h4")}</>,
   flow: <>{P("M3 17c4 0 5-10 9-10s5 10 9 10")}</>,
+  plug: <>{P("M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0z")}{P("M12 17v4")}</>,
+  bot: <>{P("M5 8h14v11H5z")}{P("M12 4v4M9 13h.01M15 13h.01M9 16h6")}</>,
 };
 
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {

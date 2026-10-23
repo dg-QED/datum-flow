@@ -7,17 +7,21 @@ import ScenarioPanel from "./panels/ScenarioPanel";
 import ResultsPanel from "./panels/ResultsPanel";
 import Transport from "./panels/Transport";
 import DxfDialog from "./panels/DxfDialog";
+import { AiActivity, ConnectAIButton, ConnectAIDialog } from "./panels/AiPanel";
+import { bridge, initAI, useBridge } from "./ai/aiclient";
+import type { ActivityEntry } from "./ai/bridgeClient";
 import { Icon, Logo, Menu, Modal, ToastHost, useMedia, useToast } from "./ui";
-import { activeScenario, clearAutosave, editProject, getState, readAutosave, redo, setState, undo, useStore, initialSim, type State } from "./store";
-import { buildSample, SAMPLES, type SampleId } from "./model/samples";
+import { activeScenario, clearAutosave, editProject, getState, readAutosave, redo, setState, undo, useStore, type State } from "./store";
+import { SAMPLES } from "./model/samples";
+import { openProject, loadSample } from "./projectOps";
+export { openProject, loadSample };
 import { emptyProject } from "./model/defaults";
-import type { Project } from "./model/types";
 import { parseDXF, type DxfDoc } from "./io/dxf";
 import { parseProject, serializeProject } from "./io/project";
 import { download } from "./io/download";
 import { seriesCSV } from "./io/csv";
 import * as simctl from "./simctl";
-import { live, resetLive } from "./live";
+import { live } from "./live";
 
 export default function App() {
   return <ToastHost><Shell /></ToastHost>;
@@ -25,20 +29,8 @@ export default function App() {
 
 const safe = (s: string) => s.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "") || "model";
 
-export function openProject(p: Project) {
-  simctl.cancelMonteCarlo();
-  resetLive(null);
-  const level = p.view?.level && p.levels.some((l) => l.id === p.view!.level) ? p.view.level : [...p.levels].sort((a, b) => b.elevation - a.elevation)[0].id;
-  setState((s) => ({ project: p, level, selection: [], undo: [], redo: [], sim: { ...initialSim, speed: s.sim.speed }, info: null, handCalc: null, series: null, results: null, scrub: null, follow: null, mc: null, rev: s.rev + 1, tool: "select" }));
-}
-export function loadSample(id: SampleId) {
-  const p = buildSample(id);
-  openProject(p);
-  if (id === "office") setState({ level: p.levels.find((l) => l.name === "Level 2")!.id });
-}
-
 // test / automation hook
-(window as unknown as { __flow?: unknown }).__flow = { getState, setState, simctl, live, loadSample, openProject, serializeProject, parseProject, seriesCSV, parseDXF };
+(window as unknown as { __flow?: unknown }).__flow = { getState, setState, simctl, live, loadSample, openProject, serializeProject, parseProject, seriesCSV, parseDXF, bridge };
 
 // boot: autosave → else the arena sample, already running
 let booted = false;
@@ -49,6 +41,7 @@ function boot() {
   if (saved) {
     try { openProject(parseProject(JSON.stringify(saved))); return; } catch { /* fall through */ }
   }
+  initAI();
   loadSample("arena");
   setState({ overlay: "none", colorBy: "speed" });
   // open mid-simulation so the first thing people see is alive
@@ -78,6 +71,16 @@ function Shell() {
   const fileRef = useRef<HTMLInputElement>(null);
   const projRef = useRef<HTMLInputElement>(null);
 
+  const aiCount = useBridge((s) => s.activity.length);
+  const [aiOpen, setAiOpen] = useState(false);
+  useEffect(() => {
+    const h = (ev: Event) => {
+      const e = (ev as CustomEvent<ActivityEntry>).detail;
+      toast(`AI · ${e.tool}: ${e.summary.split("\n")[0].slice(0, 140)}`, e.state === "error" ? "err" : "ok");
+    };
+    window.addEventListener("flow:ai-activity", h);
+    return () => window.removeEventListener("flow:ai-activity", h);
+  }, [toast]);
   useEffect(() => { if (notice) { toast(notice, /error|failed/i.test(notice) ? "err" : "info"); setState({ notice: null }); } }, [notice, toast]);
 
   const importFiles = useCallback(async (files: FileList | File[]) => {
@@ -166,6 +169,7 @@ function Shell() {
           <button onClick={() => { close(); exportCSV(); }} data-testid="export-csv"><Icon name="table" />Time series CSV</button>
           <div className="sepl" />
           <button onClick={() => { close(); clearAutosave(); toast("Autosave cleared for this browser"); }}><Icon name="trash" />Clear autosave</button>
+          <button onClick={() => { close(); setAiOpen(true); }} data-testid="menu-connect-ai"><Icon name="plug" />Connect AI…</button>
           <button onClick={() => { close(); setHelp(true); }}><Icon name="info" />Shortcuts & about</button>
         </>
       )}
@@ -185,10 +189,12 @@ function Shell() {
         <span className="sep" />
         {scenarioSelect}
         {dirty && status !== "idle" && <button className="btn sm" title="The model changed since this run was built" onClick={() => simctl.reset()}><Icon name="rewind" size={13} />Rebuild</button>}
+        <ConnectAIButton />
         <button className="btn sm" onClick={() => fileRef.current?.click()} data-testid="import-dxf"><Icon name="upload" size={14} />DXF</button>
         <button className="btn sm" onClick={exportPDF} data-testid="report"><Icon name="pdf" size={14} />Report</button>
         <button className="btn sm ghost icon" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={() => setHelp(true)}><span style={{ font: "600 13px var(--mono)" }}>?</span></button>
       </>}
+      {mobile && <ConnectAIButton compact />}
       {projectMenu}
       {!mobile && <button className="btn sm primary" onClick={saveProject}><Icon name="save" size={14} />Save</button>}
     </header>
@@ -208,6 +214,7 @@ function Shell() {
     <>
       {dxf && <DxfDialog doc={dxf.doc} name={dxf.name} onClose={() => setDxf(null)} />}
       {help && <HelpDialog onClose={() => setHelp(false)} />}
+      {aiOpen && <ConnectAIDialog onClose={() => setAiOpen(false)} />}
       {dragOver && <div className="drop-overlay"><div className="box"><Icon name="upload" size={28} /><div style={{ marginTop: 10, fontWeight: 600 }}>Drop a DXF plan or a .dflow.json model</div></div></div>}
       {busy && <div className="busy"><span><span className="spin" /> {busy}</span></div>}
     </>
@@ -248,8 +255,9 @@ function Shell() {
             <div className="tabs">
               <button className={rightTab === "results" ? "on" : ""} onClick={() => setState({ rightTab: "results" })} data-testid="tab-results"><Icon name="chart" size={14} />Results</button>
               <button className={rightTab === "props" ? "on" : ""} onClick={() => setState({ rightTab: "props" })} data-testid="tab-props"><Icon name="style" size={14} />Properties</button>
+              <button className={rightTab === "ai" ? "on" : ""} onClick={() => setState({ rightTab: "ai" })} data-testid="tab-ai"><Icon name="bot" size={14} />AI{aiCount ? <span className="count">{aiCount}</span> : null}</button>
             </div>
-            {rightTab === "results" ? <ResultsPanel /> : <PropsPanel />}
+            {rightTab === "results" ? <ResultsPanel /> : rightTab === "ai" ? <AiActivity /> : <PropsPanel />}
           </>}
         </aside>
       </div>
@@ -269,7 +277,7 @@ function MobileSheet({ onImport }: { onImport: () => void }) {
   useEffect(() => { document.documentElement.style.setProperty("--sheet-h", `${size === "peek" ? h : Math.min(h, Math.round(vh * 0.5))}px`); }, [h, size, vh]);
   const drag = useRef<{ y: number; h: number } | null>(null);
   const [liveH, setLiveH] = useState<number | null>(null);
-  const tabs: [State["sheetTab"], string, string][] = [["results", "Results", "chart"], ["scenario", "Scenario", "users"], ["plan", "Plan", "layers"], ["props", "Edit", "style"]];
+  const tabs: [State["sheetTab"], string, string][] = [["results", "Results", "chart"], ["scenario", "Scenario", "users"], ["plan", "Plan", "layers"], ["props", "Edit", "style"], ["ai", "AI", "bot"]];
   return (
     <div className="sheet" style={{ height: liveH ?? h }} data-testid="sheet">
       <div className="handle"
@@ -296,6 +304,7 @@ function MobileSheet({ onImport }: { onImport: () => void }) {
           {tab === "scenario" && <ScenarioPanel />}
           {tab === "plan" && <PlanPanel onImport={onImport} />}
           {tab === "props" && <PropsPanel />}
+          {tab === "ai" && <AiActivity />}
         </div>
       )}
     </div>

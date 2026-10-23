@@ -8,7 +8,7 @@ import { newElement } from "../model/defaults";
 import { dist, elementPoints, pointInPoly, segDist, stairFootprint } from "../model/geom";
 import { AgentLayer, drawAgents2D } from "./agentsGL";
 import { agentBuffers } from "./agentData";
-import { drawGrid, drawOverlay, drawPlan, fitView, overlayCanvas, toScreen, toWorld, DARK, type ViewT } from "./render2d";
+import { drawGrid, drawOverlay, drawPlan, drawTrails, fitView, overlayCanvas, toScreen, toWorld, DARK, type ViewT } from "./render2d";
 import { C } from "./palette";
 import { Field, Icon, Modal } from "../ui";
 import { Legend } from "../panels/Legend";
@@ -575,32 +575,6 @@ export default function TopView({ mobile }: { mobile: boolean }) {
       {calib && <CalibrateDialog a={calib.a} b={calib.b} onClose={() => setCalib(null)} />}
     </div>
   );
-}
-
-function drawTrails(g: CanvasRenderingContext2D, V: ViewT, li: number, scrub: number | null) {
-  const K = live.keys;
-  const info = live.info!;
-  const [ox, oy] = info.origin;
-  const tEnd = scrub ?? K[K.length - 1].t;
-  let end = K.length - 1;
-  while (end > 0 && K[end].t > tEnd) end--;
-  const start = Math.max(0, end - 12);
-  const n = K[end].x.length;
-  g.save();
-  g.lineWidth = 1;
-  for (let i = 0; i < n; i++) {
-    if (K[end].lvl[i] !== li || K[end].st[i] === 5 || K[end].st[i] === 0) continue;
-    g.beginPath();
-    let first = true;
-    for (let k = start; k <= end; k++) {
-      if (K[k].lvl[i] !== li || K[k].st[i] === 0) { first = true; continue; }
-      const x = (ox + K[k].x[i] / 50 - V.cx) * V.scale + V.w / 2, y = V.h / 2 - (oy + K[k].y[i] / 50 - V.cy) * V.scale;
-      if (first) { g.moveTo(x, y); first = false; } else g.lineTo(x, y);
-    }
-    g.strokeStyle = "rgba(124,196,255,0.28)";
-    g.stroke();
-  }
-  g.restore();
 }
 
 function CalibrateDialog({ a, b, onClose }: { a: P; b: P; onClose: () => void }) {

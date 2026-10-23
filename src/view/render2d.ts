@@ -6,6 +6,7 @@ import { LOS_TABLE, losIndex } from "../model/defaults";
 import { C, KIND_COLOR, congestionColor, densityColor, losRgb, usageColor } from "./palette";
 import type { Overlay } from "../store";
 import type { LevelInfo } from "../sim/protocol";
+import { live } from "../live";
 
 export interface ViewT { cx: number; cy: number; scale: number; w: number; h: number }
 export const toScreen = (v: ViewT, x: number, y: number): [number, number] => [(x - v.cx) * v.scale + v.w / 2, v.h / 2 - (y - v.cy) * v.scale];
@@ -327,3 +328,30 @@ export function fitView(p: Project, level: string, w: number, h: number, pad = 3
   const scale = Math.max(0.5, Math.min((w - 2 * side) / Math.max(1, x1 - x0), (h - 2 * pad) / Math.max(1, y1 - y0)));
   return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, scale, w, h };
 }
+
+export function drawTrails(g: CanvasRenderingContext2D, V: ViewT, li: number, scrub: number | null) {
+  const K = live.keys;
+  const info = live.info!;
+  const [ox, oy] = info.origin;
+  const tEnd = scrub ?? K[K.length - 1].t;
+  let end = K.length - 1;
+  while (end > 0 && K[end].t > tEnd) end--;
+  const start = Math.max(0, end - 12);
+  const n = K[end].x.length;
+  g.save();
+  g.lineWidth = 1;
+  for (let i = 0; i < n; i++) {
+    if (K[end].lvl[i] !== li || K[end].st[i] === 5 || K[end].st[i] === 0) continue;
+    g.beginPath();
+    let first = true;
+    for (let k = start; k <= end; k++) {
+      if (K[k].lvl[i] !== li || K[k].st[i] === 0) { first = true; continue; }
+      const x = (ox + K[k].x[i] / 50 - V.cx) * V.scale + V.w / 2, y = V.h / 2 - (oy + K[k].y[i] / 50 - V.cy) * V.scale;
+      if (first) { g.moveTo(x, y); first = false; } else g.lineTo(x, y);
+    }
+    g.strokeStyle = "rgba(124,196,255,0.28)";
+    g.stroke();
+  }
+  g.restore();
+}
+
