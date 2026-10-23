@@ -1,7 +1,8 @@
 // "Connect AI" control, connection dialog, How-to-connect sheet and the AI activity log (per-call Undo).
 import { useState } from "react";
 import { bridge, useBridge } from "../ai/aiclient";
-import { DEFAULT_PORT, HOW_TO_CONNECT, LOCALHOST_BLOCKED_MSG, localhostLikelyBlocked } from "../ai/bridgeClient";
+import { DEFAULT_PORT } from "../ai/bridgeClient";
+import { HOW_TO_CONNECT, LOCALHOST_BLOCKED_MSG, localhostLikelyBlocked } from "../ai/toolkit";
 import { Field, Icon, Modal } from "../ui";
 import { setState } from "../store";
 
@@ -33,14 +34,14 @@ export function ConnectAIDialog({ onClose }: { onClose: () => void }) {
       <button className="btn ghost" onClick={() => setHelp(true)} data-testid="ai-howto">How to connect</button>
       <span className="grow" />
       <button className="btn" onClick={onClose}>Close</button>
-      {st.enabled ? <button className="btn" onClick={() => apply(false)} data-testid="ai-off">Turn off</button>
-        : <button className="btn primary" onClick={() => apply(true)} disabled={!/^\d{6}$/.test(pairing.trim())} data-testid="ai-on"><Icon name="plug" size={14} />Connect</button>}
+      {st.enabled && <button className="btn" onClick={() => apply(false)} data-testid="ai-off">Turn off</button>}
+      {(st.status === "off" || (st.status === "error" && !st.blocked)) && <button className="btn primary" onClick={() => apply(true)} disabled={!/^\d{6}$/.test(pairing.trim())} data-testid="ai-on"><Icon name="plug" size={14} />{st.status === "error" ? "Reconnect" : "Connect"}</button>}
     </>}>
       <div className="hint">Lets an AI assistant (Claude Desktop, Claude Code, Perplexity or any MCP client) drive this tab through the Datum Bridge running on your computer. Nothing leaves your machine except what the assistant asks for.</div>
       <div className={`note ai-status ${st.status}`} data-testid="ai-status">
-        <span className={`ai-dot ${st.status}`} /> <b>{STATUS_LABEL[st.status]}</b>{st.message && st.message !== "AI connected" ? ` — ${st.message}` : ""}{st.bridgeVersion && st.status === "connected" ? ` · bridge ${st.bridgeVersion}` : ""}
+        <span className={`ai-dot ${st.status}`} /> <b>{STATUS_LABEL[st.status]}</b>{st.message && st.message !== "AI connected" && st.message !== "AI off" && !st.blocked ? ` — ${st.message}` : ""}{st.bridgeVersion && st.status === "connected" ? ` · bridge ${st.bridgeVersion}` : ""}
       </div>
-      {(blocked || st.message === LOCALHOST_BLOCKED_MSG) && <div className="note err" data-testid="ai-blocked">{LOCALHOST_BLOCKED_MSG}. This page cannot reach 127.0.0.1 from here.</div>}
+      {(blocked || st.blocked) && <div className="note err" data-testid="ai-blocked">{LOCALHOST_BLOCKED_MSG}. This page cannot reach 127.0.0.1 from here.</div>}
       <Field label="Pairing code"><input className="input mono" inputMode="numeric" maxLength={6} placeholder="6 digits from the bridge" value={pairing} onChange={(e) => setPairing(e.target.value.replace(/\D/g, ""))} data-testid="ai-pairing" /></Field>
       <Field label="Port"><input className="input mono" value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} data-testid="ai-port" /></Field>
       <label className="row"><input type="checkbox" checked={st.paused} onChange={(e) => bridge.setPaused(e.target.checked)} data-testid="ai-pause" />Pause AI — calls are rejected with “paused by user”</label>

@@ -1,6 +1,6 @@
 # Datum Flow
 
-**Open-source crowd, egress and pedestrian-movement simulation in the browser for QED Architecture & Engineering.**
+**Open-source crowd, egress and pedestrian-movement simulation in the browser for QED Architecture & Engineering.** Version 1.1 adds AI control over MCP (see [AI control](#ai-control-mcp)).
 Draw or import a multi-level plan, place people, seats, service points and exits, and watch a social-force crowd find its way out, in, or around. Flow measures densities and Level of Service, flows through every door, queues, exit use and total evacuation time, and puts a hand calculation (SFPE hydraulic method and the Ontario Building Code exit-capacity rule) next to the simulation so you can see both. It runs in one self-contained HTML file with no network access.
 
 Flow is part of the Datum suite, alongside [Datum Form](../datum-form) (3D modelling) and [Datum Atlas](../datum-atlas) (GIS). It shares the suite's dark drafting look.
@@ -80,6 +80,45 @@ The numbers below were measured inside the web worker, in headless Chromium on t
 
 The arena egress (1,890 people, about 220 s of simulated time) runs to completion in a few seconds.
 
+## AI control (MCP)
+
+New in 1.1. An AI assistant can drive Flow through the **Datum Bridge**, a small Node program on your own computer. Claude Desktop, Claude Code, Perplexity's Mac app and other MCP clients work with it. The bridge is shared by every Datum app and lives in [github.com/Nerdifitronix/datum-form](https://github.com/Nerdifitronix/datum-form) under `bridge/`. The protocol is in [docs/mcp-bridge.md](docs/mcp-bridge.md).
+
+```bash
+git clone https://github.com/Nerdifitronix/datum-form && cd datum-form/bridge && npm install
+# MCP client config (Claude Desktop):  { "mcpServers": { "datum": { "command": "node", "args": ["/path/to/datum-form/bridge/dist/cli.js"] } } }
+# Claude Code:                         claude mcp add datum -- node /path/to/datum-form/bridge/dist/cli.js
+```
+
+1. Open Flow from GitHub Pages or a downloaded `index.html`. The claude.ai artifact viewer blocks localhost, and Flow says so instead of failing silently.
+2. Click **Connect AI** (plug icon), then enter the 6-digit pairing code the bridge printed. The code is also saved in `~/.datum-bridge/pairing-code`. The default port is 47213.
+3. The status shows **AI connected**. **Pause AI** rejects calls with "paused by user". The connection retries with backoff while it is switched on.
+4. Every call lands in the **AI** tab with its arguments and result. Each change has its own **Undo**, and every mutating tool is also a single ⌘Z step.
+
+Tools appear in the MCP client as `flow_<tool>`. When the browser offers WebMCP (`navigator.modelContext`), the same tools are also registered there.
+
+| Tool | Does |
+|---|---|
+| `get_state` | Model summary: levels, element counts, seats, scenarios (active marked, closed exits), run status, view |
+| `screenshot` | PNG at any size. Takes `view` 2d (plan of a level) or 3d, and `overlay`: los, maxdensity, density, congestion or usage. Also `trails` and `color_by`. Each image carries a caption strip with time, scenario and LOS legend. After a finished run, `los` falls back to the maximum-density LOS map. |
+| `open_sample` | Opens `arena`, `office` or `theatre` |
+| `export_file` | `pdf` report (base64 + download), `csv` time series, or `dflow` model (text + download). `webm` is out of scope; use the Record button. |
+| `undo` / `redo` | One model step |
+| `list_elements` | Elements with ids and parameters, filtered by kind or level |
+| `add_element` | Adds a wall, door (with width and max flow), exit, stair or ramp (to a level, up/down speeds), obstacle, seating block (rows, aisles, occupancy, profile mix), spawn zone (count or density, profile mix, pre-movement, groups, arrivals), attractor (type, servers, service time, queue direction) or one-way barrier |
+| `update_element` / `delete_element` | Changes or removes an element by id or unique name |
+| `import_dxf` | Imports DXF text, with a layer→role mapping (unlisted layers are guessed), scale, target or new level |
+| `set_scenario` | Selects, creates or edits a scenario: type, seed, duration, exit choice, seated pre-movement, ingress window, gates, visit probabilities, population scale, closed exits |
+| `close_exit` / `open_exit` | Blocks or re-opens an exit or door in a scenario |
+| `run_simulation` | Runs from t = 0 (optional seed) until done or for N seconds, streaming progress. Returns TET, RSET (P50/P90, pre-movement, travel), per-exit usage, peak density and LOS summary per level |
+| `run_monte_carlo` | n seeds in parallel workers, returning TET per seed plus P50/P90/min/max |
+| `get_results` | The full results of the current or last run |
+| `hand_calc` | SFPE hydraulic RSET and OBC 3.4.3.2 exit/stair width check (cross-check only) |
+
+`src/ai/bridgeClient.ts` is a verbatim copy of the shared Datum client (identical in Form, Atlas, Field and Flow). Flow's tools are in `src/ai/tools.ts`. The test `npm run test:ai` drives every tool through an in-test WebSocket server that speaks the bridge protocol. When `../datum-form/bridge/dist/cli.js` exists (or `DATUM_BRIDGE=path`), it also runs through the real bridge with an MCP SDK client: it opens the office sample, closes an exit, runs the evacuation, reads TET and the hand calculation, takes a LOS screenshot and undoes.
+
+![AI activity panel with per-call Undo](docs/screenshots/ai-activity.png)
+
 ## Keyboard
 
 | Key | Action | Key | Action |
@@ -108,6 +147,7 @@ npm run build        # tsc --noEmit + one self-contained dist/index.html (≈ 1.
 ```bash
 npm test                                            # model known-answer tests (Node, esbuild bundle)
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run test:e2e   # headless Chromium end-to-end
+PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run test:ai    # AI tools over the bridge protocol (+ the real bridge if present)
 ```
 
 The e2e suite checks the following, then writes `docs/screenshots/*.png` and `test-results/e2e.json`:
@@ -145,6 +185,7 @@ index.html ── src/main.tsx ── App.tsx (shell: top bar, side panels / pho
     View3D.tsx        three.js scene, instanced figures, follow camera
   panels/             Plan, Scenario (+ settings, profiles), Properties, Results (+ cross-check, Monte-Carlo),
                       Transport, Legend, DXF dialog, charts.ts (SVG)
+  ai/                 bridgeClient.ts (shared Datum Bridge client, verbatim), toolkit.ts, tools.ts (Flow's MCP tools), aiclient.ts
   io/                 dxf.ts (reader + layer roles), project.ts, csv.ts, report.ts (jsPDF), video.ts, download.ts (Atlas helper)
 ```
 
@@ -159,6 +200,7 @@ The worker sends typed arrays by transfer (SharedArrayBuffer is not available in
 | React 18, Vite 6, vite-plugin-singlefile | UI, build, single-file output | MIT |
 | Inter Tight, JetBrains Mono (Fontsource) | Typefaces | OFL-1.1 |
 | Playwright (dev only) | Headless end-to-end tests | Apache-2.0 |
+| ws, @modelcontextprotocol/sdk (dev only) | AI end-to-end tests (mock bridge, MCP client) | MIT |
 
 All of the simulation code, the DXF reader, charts and file formats were written for Flow. Datum Flow is released under **GPL-3.0-or-later** (see `LICENSE`), the same licence as the rest of the Datum suite.
 

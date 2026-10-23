@@ -1,6 +1,6 @@
 // Datum Flow's AI tools (Datum Bridge protocol v1 / WebMCP). Every mutating tool is one undo step and its
 // activity-log entry carries an exact inverse (per-call Undo).
-import { textResult, ToolError, type ToolDef, type ToolResult, type JsonSchema } from "./bridgeClient";
+import { textResult, ToolError, type ToolDef, type ToolResult, type JsonSchema } from "./toolkit";
 import { editProject, getState, redo as storeRedo, setState, undo as storeUndo, activeScenario } from "../store";
 import * as simctl from "../simctl";
 import { live } from "../live";
@@ -200,7 +200,7 @@ function resultsPayload(): Record<string, unknown> {
     scenario: { id: sc.id, name: sc.name, kind: sc.kind, seed: sum?.seed ?? sc.seed },
     status: s.sim.status, sim_time_s: r3(s.sim.t), people: info?.n ?? 0, completed: s.sim.done,
     tet_s: sum?.tet ?? null,
-    rset: sum ? { p50_s: sum.p50, p90_s: sum.p90, premove_mean_s: sum.premoveMean, premove_p90_s: sum.premoveP90, travel_mean_s: sum.travelMean, definition: "RSET = pre-movement + travel; TET = last person out" } : null,
+    rset: sum ? { p50_s: sum.p50 == null ? null : r3(sum.p50), p90_s: sum.p90 == null ? null : r3(sum.p90), premove_mean_s: sum.premoveMean, premove_p90_s: sum.premoveP90, travel_mean_s: sum.travelMean, definition: "RSET = pre-movement + travel; TET = last person out" } : null,
     exit_usage: exitUsage,
     peak_density_ppm2: sum?.maxDensity ?? peak,
     congested_mean_s: sum?.congestedAgentS ?? null,
@@ -222,6 +222,7 @@ function handCalcPayload(): Record<string, unknown> | null {
     notes: hc.notes, sources: [SOURCES.sfpe, SOURCES.obc], label: "Cross-check only — not a code-compliance or life-safety engineering analysis",
   };
 }
+const fx = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
 const json = (v: unknown) => JSON.stringify(v, null, 1);
 
 async function ensureLoaded(seed?: number) {
@@ -276,10 +277,14 @@ export function flowTools(): ToolDef[] {
       handler: async (a) => {
         const w = Math.round(Number(a.width ?? 1280)), h = Math.round(Number(a.height ?? 800));
         const s = getState();
-        let c: HTMLCanvasElement;
+        let c: HTMLCanvasElement | undefined;
         if (a.view === "3d") c = await render3D(w, h);
-        else c = render2D({ width: w, height: h, level: levelId(a.level), overlay: (a.overlay as Overlay) ?? s.overlay, trails: !!a.trails, colorBy: (a.color_by as ColorBy) ?? s.colorBy });
-        return { content: [{ type: "image", data: canvasPNG(c), mimeType: "image/png" }, { type: "text", text: `${a.view === "3d" ? "3D view" : `2D plan of ${levelName(levelId(a.level))}${a.overlay && a.overlay !== "none" ? ` with ${a.overlay} overlay` : ""}`}, ${w}×${h}, t = ${s.sim.t.toFixed(1)} s` }] };
+        let overlay = (a.overlay as Overlay) ?? s.overlay;
+        let note = "";
+        // after a finished run nobody is left in the model: the live LOS map is empty, so show the run's maximum density as LOS
+        if ((overlay === "los" || overlay === "density") && s.sim.status === "finished" && s.sim.done >= s.sim.n) { overlay = "maxdensity"; note = " (run finished: showing maximum density reached, as LOS)"; }
+        if (a.view !== "3d") c = render2D({ width: w, height: h, level: levelId(a.level), overlay, trails: !!a.trails, colorBy: (a.color_by as ColorBy) ?? s.colorBy });
+        return { content: [{ type: "image", data: canvasPNG(c!), mimeType: "image/png" }, { type: "text", text: `${a.view === "3d" ? "3D view" : `2D plan of ${levelName(levelId(a.level))}${overlay !== "none" ? ` with ${overlay} overlay` : ""}${note}`}, ${w}×${h}, t = ${s.sim.t.toFixed(1)} s` }] };
       },
     },
     {
@@ -507,7 +512,7 @@ export function flowTools(): ToolDef[] {
         const s = getState();
         const lines = [
           `${sc.name} (${sc.kind}), seed ${s.info?.seed ?? sc.seed}: ${s.sim.done}/${s.sim.n} done at t = ${s.sim.t.toFixed(1)} s${s.sim.status === "finished" ? "" : " (paused, not finished)"}`,
-          r.tet_s != null ? `TET ${r.tet_s} s · P50 ${s.results?.summary.p50 ?? "—"} s · P90 ${s.results?.summary.p90 ?? "—"} s · mean pre-move ${s.results?.summary.premoveMean} s · mean travel ${s.results?.summary.travelMean} s` : "TET: not reached",
+          r.tet_s != null ? `TET ${r.tet_s} s · P50 ${fx(s.results?.summary.p50)} s · P90 ${fx(s.results?.summary.p90)} s · mean pre-move ${s.results?.summary.premoveMean} s · mean travel ${s.results?.summary.travelMean} s` : "TET: not reached",
           `Exit usage: ${Object.entries(r.exit_usage as Record<string, number>).map(([k, v]) => `${k} ${v}`).join(", ") || "—"}`,
           `Peak density ${r.peak_density_ppm2} p/m²`,
         ];
@@ -524,9 +529,11 @@ export function flowTools(): ToolDef[] {
         try { await simctl.runMonteCarlo(n, Math.round(Number(a.first_seed ?? 1))); } finally { clearInterval(h); }
         const s = getState();
         const sc = activeScenario(s);
-        const mc = s.project.results?.find((r) => r.scenarioId === sc.id)?.monteCarlo;
         const runs = s.mc?.runs ?? [];
-        return textResult(`${sc.name}: ${runs.length} seeds · TET P50 ${mc?.p50 ?? "—"} s, P90 ${mc?.p90 ?? "—"} s (min ${mc?.min ?? "—"}, max ${mc?.max ?? "—"})`, { scenario: sc.name, runs: runs.map((r) => ({ seed: r.seed, tet_s: r.tet, p90_s: r.p90, agents: r.agents })), p50_s: mc?.p50 ?? null, p90_s: mc?.p90 ?? null, mean_s: mc?.mean ?? null, min_s: mc?.min ?? null, max_s: mc?.max ?? null });
+        const ok = runs.map((x) => x.tet).filter((v): v is number => v !== null).sort((x, y) => x - y);
+        const q = (p: number) => (ok.length ? ok[Math.min(ok.length - 1, Math.floor(p * (ok.length - 1) + 0.5))] : null);
+        const mc = { p50: q(0.5), p90: q(0.9), min: ok[0] ?? null, max: ok[ok.length - 1] ?? null, mean: ok.length ? +(ok.reduce((x, y) => x + y, 0) / ok.length).toFixed(1) : null, not_cleared: runs.length - ok.length };
+        return textResult(`${sc.name}: ${runs.length} seeds · TET P50 ${mc?.p50 ?? "—"} s, P90 ${mc?.p90 ?? "—"} s (min ${mc?.min ?? "—"}, max ${mc?.max ?? "—"})`, { scenario: sc.name, runs: runs.map((r) => ({ seed: r.seed, tet_s: r.tet, p90_s: r.p90, agents: r.agents })), p50_s: mc?.p50 ?? null, p90_s: mc?.p90 ?? null, mean_s: mc?.mean ?? null, min_s: mc?.min ?? null, max_s: mc?.max ?? null, not_cleared: mc.not_cleared });
       },
     },
     {

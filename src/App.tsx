@@ -9,7 +9,7 @@ import Transport from "./panels/Transport";
 import DxfDialog from "./panels/DxfDialog";
 import { AiActivity, ConnectAIButton, ConnectAIDialog } from "./panels/AiPanel";
 import { bridge, initAI, useBridge } from "./ai/aiclient";
-import type { ActivityEntry } from "./ai/bridgeClient";
+import type { ActivityEntry } from "./ai/toolkit";
 import { Icon, Logo, Menu, Modal, ToastHost, useMedia, useToast } from "./ui";
 import { activeScenario, clearAutosave, editProject, getState, readAutosave, redo, setState, undo, useStore, type State } from "./store";
 import { SAMPLES } from "./model/samples";

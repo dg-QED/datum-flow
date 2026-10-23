@@ -169,7 +169,7 @@ export function runMonteCarlo(n: number, firstSeed = 1): Promise<void> {
               const q = (p: number) => (ok.length ? ok[Math.min(ok.length - 1, Math.floor(p * (ok.length - 1) + 0.5))] : null);
               const monteCarlo = { seeds: (mc?.runs ?? []).map((r) => r.seed), tets, p50: q(0.5), p90: q(0.9), mean: ok.length ? +(ok.reduce((a, b) => a + b, 0) / ok.length).toFixed(1) : null, min: ok[0] ?? null, max: ok[ok.length - 1] ?? null };
               const results = (st.project.results ?? []).map((r) => (r.scenarioId === sc.id ? { ...r, monteCarlo } : r));
-              if (!results.some((r) => r.scenarioId === sc.id) && st.results) results.push({ ...st.results.summary, monteCarlo });
+              if (!results.some((r) => r.scenarioId === sc.id) && st.results?.summary.scenarioId === sc.id) results.push({ ...st.results.summary, monteCarlo });
               return { mc, project: { ...st.project, results } };
             });
             res();
