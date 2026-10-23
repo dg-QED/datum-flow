@@ -3,12 +3,13 @@
 // Web Worker in the app and under Node in the tests.
 import type { AttractorType, Dist, Profile, ProfileId, Project, ResultSummary, Scenario } from "../model/types";
 import { pointInPoly, queueSlot, seatingFrame } from "../model/geom";
+import { PROFILE_ORDER } from "../model/defaults";
 import { Rng } from "./rng";
 import { compileWorld, hashCell, cellIndex, SEG_BARRIER, SEG_DOOR, type World } from "./world";
 import { computeField, fieldDir, sampleT, type Field, type GoalSpec } from "./fields";
 
 export const ST_INACTIVE = 0, ST_WAIT = 1, ST_MOVE = 2, ST_QUEUE = 3, ST_SERVICE = 4, ST_DONE = 5, ST_SEATED = 6, ST_IDLE = 7;
-export const PROFILE_ORDER: ProfileId[] = ["adult", "older", "child", "mobility", "staff"];
+export { PROFILE_ORDER };
 
 /** One leg of an agent's plan. */
 export type Leg =
@@ -412,7 +413,16 @@ export class Sim {
     for (let k = 1; k < cs.length; k++) cs[k] += cs[k - 1];
     const fill = cs.slice(0, cs.length - 1);
     for (let i = 0; i < n; i++) if (key[i] >= 0) this.order[fill[key[i]]++] = i;
+    // cell-ordered copies of what the neighbour loop reads (cache-friendly)
+    if (this.sX.length !== n) { this.sX = new Float64Array(n); this.sY = new Float64Array(n); this.sVX = new Float64Array(n); this.sVY = new Float64Array(n); this.sR = new Float64Array(n); }
+    const m = cs[cs.length - 1];
+    for (let q = 0; q < m; q++) {
+      const i = this.order[q];
+      this.sX[q] = this.x[i]; this.sY[q] = this.y[i]; this.sVX[q] = this.vx[i]; this.sVY[q] = this.vy[i];
+      this.sR[q] = this.r[i] * (1 - 0.35 * Math.min(1, this.stuckT[i] / 8));
+    }
   }
+  private sX = new Float64Array(0); private sY = new Float64Array(0); private sVX = new Float64Array(0); private sVY = new Float64Array(0); private sR = new Float64Array(0);
 
   // ------------------------------------------------------------------ density
   private initDensity() {
@@ -580,6 +590,8 @@ export class Sim {
         // arrive smoothly: desired speed scales down inside 0.6 m
         const f = Math.min(1, d / 0.6);
         this.ex[i] = d > 1e-6 ? (dx / d) * f : 0; this.ey[i] = d > 1e-6 ? (dy / d) * f : 0;
+      } else if (T && ((i + this.stepCount) & 1) === 0 && (this.ex[i] !== 0 || this.ey[i] !== 0) && this.stuckT[i] <= 2) {
+        // field directions change slowly: refresh each agent every other step
       } else if (T && fieldDir(L, T, this.x[i], this.y[i], out)) { this.ex[i] = out[0]; this.ey[i] = out[1]; }
       else { this.ex[i] = 0; this.ey[i] = 0; }
       // fluctuation for people who have been blocked for > 2 s (the ξ term of HFV 2000, applied only when stuck):
@@ -598,24 +610,28 @@ export class Sim {
 
   private forces(h: number) {
     const { n, x, y, vx, vy, r, st, lvl, ex, ey, v0, tau, mass, sfac } = this;
+    void r;
     const sf = this.project.settings.sf;
     const A = sf.A, B = sf.B, K = sf.k, KAP = sf.kappa, Aw = sf.Aw, Bw = sf.Bw;
     const lam = this.project.settings.anisotropy;
     const cs = this.cellStart, order = this.order;
+    const groupC = this.groupCentres();
+    const sX = this.sX, sY = this.sY, sVX = this.sVX, sVY = this.sVY, sR = this.sR, stuckT = this.stuckT, group = this.group, gcn = this.gcn, gcx = this.gcx, gcy = this.gcy, doorOpen = this.doorOpen, penD = this.penD, penX = this.penX, penY = this.penY;
     const levels = this.w.levels;
     if (this.fxA.length !== n) { this.fxA = new Float64Array(n); this.fyA = new Float64Array(n); this.penD = new Float64Array(n); this.penX = new Float64Array(n); this.penY = new Float64Array(n); }
     const fxA = this.fxA, fyA = this.fyA;
-    const groupC = this.groupCentres();
     for (let i = 0; i < n; i++) {
       const s = st[i];
       if (s === ST_INACTIVE || s === ST_DONE || s === ST_SEATED) continue;
       const li = lvl[i];
       const L = levels[li];
       // people held still for a while squeeze (effective radius down to 75 %) — breaks rare symmetric deadlocks
-      const xi = x[i], yi = y[i], vxi = vx[i], vyi = vy[i], ri = r[i] * (1 - 0.35 * Math.min(1, this.stuckT[i] / 8)), mi = mass[i];
+      const xi = x[i], yi = y[i], vxi = vx[i], vyi = vy[i], ri = r[i] * (1 - 0.35 * Math.min(1, stuckT[i] / 8)), mi = mass[i];
       // driving term
       let vd = v0[i];
-      const sc = L.stairCell[cellIndex(L, xi, yi)] ?? -1;
+      const G = L.grid;
+      const gi = Math.floor((xi - G.x0) / G.h), gj = Math.floor((yi - G.y0) / G.h);
+      const sc = gi >= 0 && gj >= 0 && gi < G.nx && gj < G.ny ? L.stairCell[gj * G.nx + gi] : -1;
       if (sc >= 0) {
         const S = this.w.stairs[sc];
         const toB = ex[i] * S.ux + ey[i] * S.uy >= 0;
@@ -637,14 +653,14 @@ export class Sim {
           if (jx < 0 || jx >= d.nx) continue;
           const c = off + jy * d.nx + jx;
           for (let q = cs[c], qe = cs[c + 1]; q < qe; q++) {
-            const j = order[q];
-            if (j === i) continue;
-            const dx = xi - x[j], dy = yi - y[j];
+            if (order[q] === i) continue;
+            const dx = xi - sX[q], dy = yi - sY[q];
             const dd = dx * dx + dy * dy;
-            if (dd > 2.25 || dd < 1e-12) continue;
+            const rij = ri + sR[q];
+            const cut = rij + 0.55;      // beyond this the exponential term is < 2 % of A
+            if (dd > cut * cut || dd < 1e-12) continue;
             const dist = Math.sqrt(dd);
             const nx = dx / dist, ny = dy / dist;
-            const rij = ri + r[j] * (1 - 0.35 * Math.min(1, this.stuckT[j] / 8));
             const gap = rij - dist;
             let f = A * Math.exp(gap / B);
             if (lam < 1) {
@@ -654,7 +670,7 @@ export class Sim {
             if (gap > 0) {
               f += K * gap;
               const tx = -ny, ty = nx;
-              const dvt = (vx[j] - vxi) * tx + (vy[j] - vyi) * ty;
+              const dvt = (sVX[q] - vxi) * tx + (sVY[q] - vyi) * ty;
               fx += KAP * gap * dvt * tx; fy += KAP * gap * dvt * ty;
             }
             fx += f * nx; fy += f * ny;
@@ -671,7 +687,7 @@ export class Sim {
           const kind = L.segKind[k];
           const b5 = k * 5;
           const ax = segs[b5], ay = segs[b5 + 1], bx = segs[b5 + 2], by = segs[b5 + 3], ht = segs[b5 + 4];
-          if (kind === SEG_DOOR && this.doorOpen[L.segRef[k]]) continue;
+          if (kind === SEG_DOOR && doorOpen[L.segRef[k]]) continue;
           if (kind === SEG_BARRIER && (bx - ax) * (yi - ay) - (by - ay) * (xi - ax) > 0) continue;   // allowed side
           const sx = bx - ax, sy = by - ay;
           const l2 = sx * sx + sy * sy;
@@ -680,7 +696,7 @@ export class Sim {
           const qx = xi - (ax + tt * sx), qy = yi - (ay + tt * sy);
           const dc = Math.sqrt(qx * qx + qy * qy);
           const dist = dc - ht;
-          if (dist > 1.0 || dc < 1e-9) continue;
+          if (dist > 0.8 || dc < 1e-9) continue;
           const nx = qx / dc, ny = qy / dc;
           const gap = ri - dist;
           // social (exponential) wall term. Its component against the desired direction is dropped: with the
@@ -701,18 +717,18 @@ export class Sim {
         }
       }
       // group cohesion (Moussaïd et al. 2010): pulled back toward the group centre beyond a comfort radius
-      const g = this.group[i];
+      const g = group[i];
       if (g >= 0 && groupC && s === ST_MOVE) {
-        const gc = groupC.get(g)!;
-        if (gc && gc[2] > 1) {
-          const dx = gc[0] - xi, dy = gc[1] - yi, dd = Math.hypot(dx, dy);
-          const lim = 0.5 + 0.25 * (gc[2] - 1);
+        const gn = gcn[g];
+        if (gn > 1) {
+          const dx = gcx[g] - xi, dy = gcy[g] - yi, dd = Math.hypot(dx, dy);
+          const lim = 0.5 + 0.25 * (gn - 1);
           // gentle pull (at most 40 % of the driving force) and only while the group is together (< 4 m)
           if (dd > lim && dd < 4) { const f = Math.min(0.4 * (mi * v0[i]) / tau[i], (dd - lim) * mi * 0.8); fx += (f * dx) / dd; fy += (f * dy) / dd; }
         }
       }
       fxA[i] = fx; fyA[i] = fy;
-      this.penD[i] = pen; this.penX[i] = pnx; this.penY[i] = pny;
+      penD[i] = pen; penX[i] = pnx; penY[i] = pny;
     }
     // integrate (semi-implicit Euler) with the HFV speed cap v ≤ 1.3 v0
     for (let i = 0; i < n; i++) {
@@ -734,20 +750,22 @@ export class Sim {
     }
   }
 
-  private groupCentres(): Map<number, [number, number, number]> | null {
-    let any = false;
-    const m = new Map<number, [number, number, number]>();
+  private gcx = new Float64Array(0); private gcy = new Float64Array(0); private gcn = new Int32Array(0);
+  private groupCentres(): boolean {
+    let maxG = -1;
+    for (let i = 0; i < this.n; i++) if (this.group[i] > maxG) maxG = this.group[i];
+    if (maxG < 0) return false;
+    if (this.gcn.length <= maxG) { this.gcx = new Float64Array(maxG + 1); this.gcy = new Float64Array(maxG + 1); this.gcn = new Int32Array(maxG + 1); }
+    this.gcx.fill(0); this.gcy.fill(0); this.gcn.fill(0);
     for (let i = 0; i < this.n; i++) {
       const g = this.group[i];
       if (g < 0 || this.st[i] !== ST_MOVE) continue;
-      any = true;
-      const c = m.get(g);
-      if (c) { c[0] += this.x[i]; c[1] += this.y[i]; c[2]++; } else m.set(g, [this.x[i], this.y[i], 1]);
+      this.gcx[g] += this.x[i]; this.gcy[g] += this.y[i]; this.gcn[g]++;
     }
-    if (!any) return null;
-    for (const c of m.values()) { c[0] /= c[2]; c[1] /= c[2]; }
-    return m;
+    for (let g = 0; g <= maxG; g++) if (this.gcn[g]) { this.gcx[g] /= this.gcn[g]; this.gcy[g] /= this.gcn[g]; }
+    return true;
   }
+
 
   /** Exits, door crossings, barriers, stairs, arrivals. */
   private postMove() {

@@ -100,6 +100,23 @@ export function hashCell(h: SegHash, x: number, y: number): number {
   return j * h.nx + i;
 }
 
+/** Wall centre-line segments per level with door / exit openings cut out (for drawing in 3D). */
+export function wallSegmentsByLevel(project: Project): { ax: number; ay: number; bx: number; by: number; t: number }[][] {
+  return project.levels.map((L) => {
+    const openings: OpeningW[] = project.elements.filter((e): e is Door | Exit => (e.kind === "door" || e.kind === "exit") && e.level === L.id)
+      .map((e) => ({ id: e.id, name: "", level: 0, ax: e.a[0], ay: e.a[1], bx: e.b[0], by: e.b[1], width: 0, isExit: e.kind === "exit", closed: false, maxFlow: null }));
+    const out: { ax: number; ay: number; bx: number; by: number; t: number }[] = [];
+    for (const w of project.elements) {
+      if (w.kind !== "wall" || w.level !== L.id) continue;
+      const pts = w.closed ? [...w.pts, w.pts[0]] : w.pts;
+      for (let i = 1; i < pts.length; i++)
+        for (const s of cutOpenings({ ax: pts[i - 1][0], ay: pts[i - 1][1], bx: pts[i][0], by: pts[i][1], ht: Math.max(0.02, w.thickness / 2), kind: SEG_STATIC, ref: -1 }, openings))
+          out.push({ ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, t: s.ht * 2 });
+    }
+    return out;
+  });
+}
+
 export function compileWorld(project: Project, scenario: Scenario): World {
   const warnings: string[] = [];
   const levelIndex = new Map(project.levels.map((l, i) => [l.id, i]));

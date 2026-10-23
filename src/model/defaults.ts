@@ -1,9 +1,11 @@
 // Default parameters with their sources. Every number a user might question carries a citation here,
 // and the same strings are printed in the PDF report's assumptions table.
-import type { AttractorType, Dist, Element, ElementKind, Level, P, Profile, Project, Scenario, Settings } from "./types";
+import type { AttractorType, Dist, Element, ElementKind, Level, P, Profile, ProfileId, Project, Scenario, Settings } from "./types";
 
 let seq = 0;
 export const uid = (p = "e") => `${p}${Date.now().toString(36).slice(-5)}${(seq++).toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+
+export const PROFILE_ORDER: ProfileId[] = ["adult", "older", "child", "mobility", "staff"];
 
 export const PROFILES: Profile[] = [
   {
