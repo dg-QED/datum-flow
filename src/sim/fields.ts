@@ -107,10 +107,11 @@ export function computeField(w: World, id: string, goals: GoalSpec[]): Field {
     w.stairs.forEach((s, si) => {
       if (s.la === s.lb) return;
       const LA = w.levels[s.la], LB = w.levels[s.lb];
+      // seed only in the direction that actually shortens the route, so a portal never feeds on its own value
       const vB = sampleT(LB, T[s.lb], s.bx + s.ux * 0.45, s.by + s.uy * 0.45);
-      if (isFinite(vB)) for (const c of portals[si].a) if (vB + 0.05 < seeds[s.la][c]) { seeds[s.la][c] = vB + 0.05; dirty.add(s.la); }
       const vA = sampleT(LA, T[s.la], s.bx - s.ux * 0.35, s.by - s.uy * 0.35);
-      if (isFinite(vA)) for (const c of portals[si].b) if (vA + 0.05 < seeds[s.lb][c]) { seeds[s.lb][c] = vA + 0.05; dirty.add(s.lb); }
+      if (isFinite(vB) && vB + 0.05 < vA) { for (const c of portals[si].a) if (vB + 0.05 < seeds[s.la][c]) { seeds[s.la][c] = vB + 0.05; dirty.add(s.la); } }
+      else if (isFinite(vA) && vA + 0.05 < vB) { for (const c of portals[si].b) if (vA + 0.05 < seeds[s.lb][c]) { seeds[s.lb][c] = vA + 0.05; dirty.add(s.lb); } }
     });
   }
   return { id, T };

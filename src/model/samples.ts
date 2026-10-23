@@ -78,19 +78,19 @@ function arena(): Project {
   outer.openings.forEach(([a, b], k) => E.push(newElement("exit", l, { name: `Gate ${"ABCD"[k]}`, a, b })));
   // concession stands against the outer wall, queues toward the bowl
   [65, 90, 115].forEach((phi, k) => {
-    E.push(newElement("obstacle", l, { name: `Counter ${k + 1}`, pts: arcPoly(80.3, 81.6, phi - 3, phi + 3, 1.5) }));
-    E.push(newElement("attractor", l, { name: `Concession ${k + 1}`, type: "concession", p: polar(79.5, phi), servers: 4, queueDir: +((phi + 180) * D2R).toFixed(4), service: lognormal(35, 0.4) }));
+    E.push(newElement("obstacle", l, { name: `Counter ${k + 1}`, pts: arcPoly(80.3, 81.6, phi - 4.5, phi + 4.5, 1.5) }));
+    E.push(newElement("attractor", l, { name: `Concession ${k + 1}`, type: "concession", p: polar(79.5, phi), servers: 8, queueDir: +((phi + 180) * D2R).toFixed(4), service: lognormal(30, 0.4) }));
   });
   // washrooms at the concourse ends; queues run along the concourse
   E.push(newElement("obstacle", l, { name: "Washroom W", pts: arcPoly(71, 80, 40, 43.2, 1) }));
   E.push(newElement("obstacle", l, { name: "Washroom E", pts: arcPoly(71, 80, 136.8, 140, 1) }));
-  E.push(newElement("attractor", l, { name: "Washroom W", type: "washroom", p: polar(75.5, 44.2), servers: 6, queueDir: +((44.2 + 90) * D2R).toFixed(4), service: lognormal(70, 0.35) }));
-  E.push(newElement("attractor", l, { name: "Washroom E", type: "washroom", p: polar(75.5, 135.8), servers: 6, queueDir: +((135.8 - 90) * D2R).toFixed(4), service: lognormal(70, 0.35) }));
+  E.push(newElement("attractor", l, { name: "Washroom W", type: "washroom", p: polar(75.5, 44.2), servers: 12, queueDir: +((44.2 + 90) * D2R).toFixed(4), service: lognormal(50, 0.35) }));
+  E.push(newElement("attractor", l, { name: "Washroom E", type: "washroom", p: polar(75.5, 135.8), servers: 12, queueDir: +((135.8 - 90) * D2R).toFixed(4), service: lognormal(50, 0.35) }));
   // standing crowd on the concourse
   E.push(newElement("spawn", l, { name: "Concourse crowd", pts: arcPoly(71, 77.5, 47, 133, 4), mode: "count", count: 160, premove: lognormal(20, 0.5), groupFrac: 0.4 }));
   // ingress: arrivals in the plaza outside each gate, screened at the gate
   gates.forEach((phi, k) => {
-    E.push(newElement("spawn", l, { name: `Plaza ${"ABCD"[k]}`, pts: arcPoly(85, 92, phi - 4.5, phi + 4.5, 1.5), mode: "count", count: 300, arrivals: true, premove: { type: "fixed", a: 0, b: 0 }, groupFrac: 0.45, groupSize: [2, 4] }));
+    E.push(newElement("spawn", l, { name: `Plaza ${"ABCD"[k]}`, pts: arcPoly(85, 92, phi - 4.5, phi + 4.5, 1.5), mode: "count", count: 220, arrivals: true, premove: { type: "fixed", a: 0, b: 0 }, groupFrac: 0.45, groupSize: [2, 4] }));
     E.push(newElement("attractor", l, { name: `Screening ${"ABCD"[k]}`, type: "gate", p: polar(83.6, phi), servers: 5, queueDir: +(phi * D2R).toFixed(4), service: lognormal(6, 0.35) }));
   });
   p.elements = E;
@@ -195,7 +195,9 @@ function theatre(): Project {
   E.push(newElement("exit", o, { name: "Stage-side exit W", a: [0, 17.2], b: [0, 18.8] }));
   E.push(newElement("exit", o, { name: "Stage-side exit E", a: [W, 17.2], b: [W, 18.8] }));
   E.push(newElement("obstacle", o, { name: "Stage", pts: rect(0.15, 20.5, W - 0.15, H - 0.15) }));
-  E.push(newElement("seating", o, { name: "Orchestra", origin: [21.8, 19], width: 19.6, depth: 13.6, angle: Math.PI, rowPitch: 0.85, seatWidth: 0.5, aisles: "center", aisleWidth: 1.2, occupancy: 0.95, profile: { adult: 0.85, older: 0.12, child: 0.02, mobility: 0.01 } }));
+  // two orchestra blocks with open row ends: 2.2 m side aisles and a 1.4 m centre aisle
+  for (const [x0, nm] of [[21.8, "Orchestra right"], [11.1, "Orchestra left"]] as const)
+    E.push(newElement("seating", o, { name: nm, origin: [x0, 19], width: 8.9, depth: 13.6, angle: Math.PI, rowPitch: 0.85, seatWidth: 0.5, aisles: "open", aisleWidth: 1.2, occupancy: 0.95, profile: { adult: 0.85, older: 0.12, child: 0.02, mobility: 0.01 } }));
   // side passages to the balcony stairs (outside the hall walls)
   for (const [x0, x1] of [[-4, 0], [W, W + 4]]) {
     E.push(newElement("wall", o, { name: "Stair passage", pts: [[x0 === -4 ? 0 : W, 10], [x0 === -4 ? -4 : W + 4, 10], [x0 === -4 ? -4 : W + 4, 0]], thickness: 0.2 }));
@@ -205,7 +207,8 @@ function theatre(): Project {
   // balcony
   E.push(newElement("wall", b, { name: "Balcony", pts: [[0, 9.4], [0, 0], [W, 0], [W, 9.4]], thickness: 0.3 }));
   E.push(newElement("wall", b, { name: "Balcony front rail", pts: [[0, 9.4], [W, 9.4]], thickness: 0.15 }));
-  E.push(newElement("seating", b, { name: "Balcony", origin: [21.8, 8.9], width: 19.6, depth: 7.6, angle: Math.PI, rowPitch: 0.9, seatWidth: 0.5, aisles: "center", aisleWidth: 1.2, occupancy: 0.95, profile: { adult: 0.88, older: 0.1, child: 0.02 } }));
+  for (const [x0, nm] of [[21.8, "Balcony right"], [11.1, "Balcony left"]] as const)
+    E.push(newElement("seating", b, { name: nm, origin: [x0, 8.9], width: 8.9, depth: 7.6, angle: Math.PI, rowPitch: 0.9, seatWidth: 0.5, aisles: "open", aisleWidth: 1.2, occupancy: 0.95, profile: { adult: 0.88, older: 0.1, child: 0.02 } }));
   E.push(newElement("door", b, { name: "Balcony door W", a: [0, 0.4], b: [0, 1.4] }));
   E.push(newElement("door", b, { name: "Balcony door E", a: [W, 0.4], b: [W, 1.4] }));
   E.push(newElement("wall", b, { name: "Stair hall W", pts: [[0, 9], [-4, 9], [-4, -0.6], [0, -0.6], [0, 0]], thickness: 0.2 }));

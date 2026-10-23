@@ -55,7 +55,7 @@ export interface Stair extends Base {
 /** Seating block: rows parallel to the local x axis, front row at local y = 0, rows step back toward +y. */
 export interface Seating extends Base {
   kind: "seating"; origin: P; width: number; depth: number; angle: number;
-  rowPitch: number; seatWidth: number; aisles: "both" | "left" | "right" | "center" | "none"; aisleWidth: number;
+  rowPitch: number; seatWidth: number; aisles: "both" | "left" | "right" | "center" | "none" | "open"; aisleWidth: number;
   occupancy: number;     // 0..1 of seats occupied at the start of egress / circulation
   profile: ProfileMix;
 }

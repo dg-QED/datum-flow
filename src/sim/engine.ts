@@ -582,6 +582,17 @@ export class Sim {
         this.ex[i] = d > 1e-6 ? (dx / d) * f : 0; this.ey[i] = d > 1e-6 ? (dy / d) * f : 0;
       } else if (T && fieldDir(L, T, this.x[i], this.y[i], out)) { this.ex[i] = out[0]; this.ey[i] = out[1]; }
       else { this.ex[i] = 0; this.ey[i] = 0; }
+      // fluctuation for people who have been blocked for > 2 s (the ξ term of HFV 2000, applied only when stuck):
+      // the desired direction is turned by a pseudo-random angle up to ±70°, re-drawn every 1.5 s
+      const stk = this.stuckT[i];
+      if (stk > 2 && (this.ex[i] !== 0 || this.ey[i] !== 0)) {
+        const k = Math.floor(this.t / 1.5);
+        let hsh = Math.imul(i + 1, 0x9e3779b1) ^ Math.imul(k + 7, 0x85ebca6b) ^ (this.seedUsed * 2654435761);
+        hsh = Math.imul(hsh ^ (hsh >>> 15), 0x2c1b3c6d); hsh ^= hsh >>> 13;
+        const ang = (((hsh >>> 0) / 4294967296) * 2 - 1) * Math.min(1.22, 0.3 * stk);
+        const c = Math.cos(ang), sn = Math.sin(ang), ex = this.ex[i], ey = this.ey[i];
+        this.ex[i] = ex * c - ey * sn; this.ey[i] = ex * sn + ey * c;
+      }
     }
   }
 
@@ -601,7 +612,7 @@ export class Sim {
       const li = lvl[i];
       const L = levels[li];
       // people held still for a while squeeze (effective radius down to 75 %) — breaks rare symmetric deadlocks
-      const xi = x[i], yi = y[i], vxi = vx[i], vyi = vy[i], ri = r[i] * (1 - 0.25 * Math.min(1, this.stuckT[i] / 8)), mi = mass[i];
+      const xi = x[i], yi = y[i], vxi = vx[i], vyi = vy[i], ri = r[i] * (1 - 0.35 * Math.min(1, this.stuckT[i] / 8)), mi = mass[i];
       // driving term
       let vd = v0[i];
       const sc = L.stairCell[cellIndex(L, xi, yi)] ?? -1;
@@ -633,7 +644,7 @@ export class Sim {
             if (dd > 2.25 || dd < 1e-12) continue;
             const dist = Math.sqrt(dd);
             const nx = dx / dist, ny = dy / dist;
-            const rij = ri + r[j] * (1 - 0.25 * Math.min(1, this.stuckT[j] / 8));
+            const rij = ri + r[j] * (1 - 0.35 * Math.min(1, this.stuckT[j] / 8));
             const gap = rij - dist;
             let f = A * Math.exp(gap / B);
             if (lam < 1) {
@@ -793,11 +804,13 @@ export class Sim {
         const along = (x1 - S.ax) * S.ux + (y1 - S.ay) * S.uy, lat = (x1 - S.ax) * S.nx + (y1 - S.ay) * S.ny;
         if (S.lb !== S.la && along > S.L - 0.3 - this.r[i] && this.ex[i] * S.ux + this.ey[i] * S.uy > 0.2) {
           const d = 0.45 + this.r[i];
-          const nxp = S.bx + S.ux * d + S.nx * lat, nyp = S.by + S.uy * d + S.ny * lat;
-          if (this.spotFree(i, S.lb, nxp, nyp)) {
-            this.lvl[i] = S.lb; this.x[i] = this.px[i] = nxp; this.y[i] = this.py[i] = nyp;
-            continue;
+          let placed = false;
+          for (const off of [0, 0.45, -0.45, 0.9, -0.9]) {
+            const l2 = Math.max(-S.hw + this.r[i], Math.min(S.hw - this.r[i], lat + off));
+            const nxp = S.bx + S.ux * d + S.nx * l2, nyp = S.by + S.uy * d + S.ny * l2;
+            if (this.spotFree(i, S.lb, nxp, nyp)) { this.lvl[i] = S.lb; this.x[i] = this.px[i] = nxp; this.y[i] = this.py[i] = nyp; placed = true; break; }
           }
+          if (placed) continue;
         }
       }
       for (const S of w.stairs) {
@@ -809,7 +822,7 @@ export class Sim {
         if (!T) continue;
         const here = sampleT(L, T[S.lb], x1, y1);
         const up = sampleT(w.levels[S.la], T[S.la], S.bx - S.ux * 0.35, S.by - S.uy * 0.35);
-        if (up <= here + 0.3) {
+        if (up + 0.2 < here) {
           const d = 0.4 + this.r[i];
           const nxp = S.bx - S.ux * d + S.nx * lat, nyp = S.by - S.uy * d + S.ny * lat;
           if (!this.spotFree(i, S.la, nxp, nyp)) continue;
@@ -833,7 +846,8 @@ export class Sim {
         if (b.level === this.lvl[i]) {
           const { toLocal } = seatingFrame(b.el);
           const [u, v] = toLocal(this.x[i], this.y[i]);
-          if (u >= -0.05 && v >= -0.05 && u <= b.el.width + 0.05 && v <= b.el.depth + 0.05) {
+          const inside = u >= -0.05 && v >= -0.05 && u <= b.el.width + 0.05 && v <= b.el.depth + 0.05;
+          if (inside || sampleT(L, this.seatField(leg.block).T[this.lvl[i]], this.x[i], this.y[i]) < 0.6) {
             if (leg.seat >= 0) { const p = b.seats[leg.seat]; this.x[i] = p[0]; this.y[i] = p[1]; }
             this.vx[i] = this.vy[i] = 0;
             this.legIdx[i]++;

@@ -107,7 +107,7 @@ export function seatingSpans(s: Seating): [number, number][] {
     case "left": return [[aw, W]];
     case "right": return [[0, W - aw]];
     case "center": return [[0, W / 2 - aw / 2], [W / 2 + aw / 2, W]];
-    case "none": return [[0, W]];
+    case "none": case "open": return [[0, W]];
   }
 }
 export interface SeatLayout { rows: { a: P; b: P }[]; seats: P[]; aisleSeat: boolean[]; sideWalls: { a: P; b: P }[]; capacity: number }
@@ -127,7 +127,7 @@ export function seatingLayout(s: Seating): SeatLayout {
       const pad = (u1 - u0 - n * s.seatWidth) / 2;
       for (let k = 0; k < n; k++) {
         seats.push(toWorld(u0 + pad + (k + 0.5) * s.seatWidth, vSeat));
-        aisleSeat.push((k === 0 && u0 > 1e-6) || (k === n - 1 && u1 < s.width - 1e-6));
+        aisleSeat.push((k === 0 && (u0 > 1e-6 || s.aisles === "open")) || (k === n - 1 && (u1 < s.width - 1e-6 || s.aisles === "open")));
       }
     }
   }
